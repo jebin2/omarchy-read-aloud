@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "jebin2.read-aloud",
+  "name": "Read Aloud",
+  "version": "0.1.1",
+  "author": "jebin2",
+  "license": "GPL-3.0-only",
+  "description": "Private, local text-to-speech with the Kokoro voice model. Paste text or highlight it and press a shortcut; play, pause, stop and clear from the bar. Nothing is saved.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Read Aloud",
+    "description": "Hear any text read aloud, offline. Shows the text being read and lets you pause, stop or clear it.",
+    "category": "Media",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

@@ -1,0 +1,178 @@
+#!/bin/bash
+# Installs, updates and removes Read Aloud's engine for the current user.
+# The bar panel runs it; it also works from a terminal.
+#
+#   read-aloud-setup check            JSON for the panel: installed, update, shortcut
+#   read-aloud-setup setup            install or update (safe to run again)
+#   read-aloud-setup shortcut on|off  the Super+Alt+R key in ~/.config/hypr/bindings.lua
+#   read-aloud-setup uninstall        remove everything, including the plugin
+#
+# What setup puts where (all in your home, nothing system-wide except Bun):
+#   engine  -> ~/.local/share/omarchy-read-aloud/engine   (+ node_modules)
+#   model   -> ~/.local/share/omarchy-read-aloud/models   (~165 MB, downloaded once)
+#   command -> ~/.local/bin/read-aloud
+#   service -> ~/.config/systemd/user/omarchy-read-aloud.service
+#   Bun     -> the Arch package "bun", only if no Bun is found (asks for your password)
+#
+# Progress lines start with "step: " (the panel shows the latest one).
+set -euo pipefail
+
+PLUGIN_ID=jebin2.read-aloud
+SRC="$(cd "$(dirname "$0")/.." && pwd)"
+DATA="${XDG_DATA_HOME:-$HOME/.local/share}/omarchy-read-aloud"
+CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}"
+UNIT_DIR="$CONFIG/systemd/user"
+UNIT="omarchy-read-aloud.service"
+CLI="$HOME/.local/bin/read-aloud"
+BINDINGS="$CONFIG/hypr/bindings.lua"
+MDIR="$DATA/models/onnx-community/Kokoro-82M-v1.0-ONNX/onnx"
+MODEL="$MDIR/model_timed_fp16.onnx"
+VERSION="$(sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' "$SRC/manifest.json" | head -n 1)"
+MARK="# omarchy-read-aloud command"
+
+step() { echo "step: $*"; }
+die() { echo "$*" >&2; exit 1; }
+
+find_bun() {
+  local b
+  for b in "$(command -v bun 2>/dev/null || true)" "$HOME/.bun/bin/bun"; do
+    [[ -n $b && -x $b ]] && { echo "$b"; return 0; }
+  done
+  return 1
+}
+
+shortcut_present() { [[ -f $BINDINGS ]] && grep -q -- '-- BEGIN omarchy-read-aloud' "$BINDINGS"; }
+
+check() {
+  local installed=false update=false shortcut=false bun=false have=""
+  [[ -f $DATA/version ]] && have="$(head -n 1 "$DATA/version")"
+  [[ -n $have && -f $MODEL && -f $UNIT_DIR/$UNIT && -x $CLI ]] && installed=true
+  [[ $installed == true && $have != "$VERSION" ]] && update=true
+  shortcut_present && shortcut=true
+  find_bun >/dev/null && bun=true
+  printf '{"installed":%s,"update":%s,"shortcut":%s,"bun":%s,"version":"%s","installedVersion":"%s"}\n' \
+    "$installed" "$update" "$shortcut" "$bun" "$VERSION" "$have"
+}
+
+setup() {
+  local bun
+  for cmd in pw-play wl-paste systemctl python3; do
+    command -v "$cmd" >/dev/null || die "Missing $cmd. Install it and try again."
+  done
+
+  if ! bun="$(find_bun)"; then
+    step "Installing Bun (asks for your password)…"
+    local rc=0
+    pkexec pacman -S --needed --noconfirm bun || rc=$?
+    (( rc == 126 )) && { echo "Cancelled: Bun is needed to run the voice engine."; exit 126; }
+    (( rc == 0 )) || die "Couldn't install Bun (pacman exit $rc). Install it with: omarchy pkg add bun"
+    bun="$(find_bun)" || die "Bun was installed but not found on PATH."
+  fi
+
+  step "Installing the engine…"
+  mkdir -p "$DATA/engine"
+  # Only the engine's own files: tests, fixtures and dev leftovers stay behind.
+  find "$DATA/engine" -maxdepth 1 -type f \( -name '*.ts' -o -name '*.py' \) -delete
+  cp "$SRC"/engine/*.ts "$SRC"/engine/selection.py "$SRC"/engine/package.json "$SRC"/engine/bun.lock "$DATA/engine/"
+  (cd "$DATA/engine" && "$bun" install --production --frozen-lockfile --silent) \
+    || die "Couldn't install the engine's packages (no internet?)."
+  # Unused by Kokoro, never loaded: the browser build of ONNX Runtime.
+  rm -rf "$DATA/engine/node_modules/onnxruntime-web"
+
+  if [[ ! -f $MODEL ]]; then
+    if [[ ! -f $MDIR/model_fp16.onnx ]]; then
+      if [[ -f $SRC/models/onnx-community/Kokoro-82M-v1.0-ONNX/onnx/model_fp16.onnx ]]; then
+        step "Copying the voice model…"
+        mkdir -p "$DATA/models" && cp -r "$SRC/models/." "$DATA/models/"
+      else
+        step "Downloading the voice model (165 MB, once)…"
+        READ_ALOUD_MODELS="$DATA/models" "$bun" "$DATA/engine/fetch-model.ts" >/dev/null \
+          || die "Couldn't download the voice model from Hugging Face (no internet?)."
+      fi
+    fi
+    step "Preparing the voice model…"
+    "$bun" "$DATA/engine/patch-model.ts" "$MDIR/model_fp16.onnx" "$MODEL" >/dev/null
+    rm -f "$MDIR/model_fp16.onnx"
+  fi
+  # Before 0.1.1 the model was uint8.
+  rm -f "$MDIR/model_timed_uint8.onnx" "$MDIR/model_uint8.onnx"
+
+  step "Installing the read-aloud command…"
+  mkdir -p "$(dirname "$CLI")"
+  # Ours: this marker, or the 0.1.0 install.sh wrapper (it ran engine/cli.ts).
+  if [[ -e $CLI ]] && ! grep -q -e "$MARK" -e "omarchy-read-aloud/engine/cli.ts" "$CLI"; then
+    die "$CLI exists and is not Read Aloud's. Move it away and try again."
+  fi
+  cat > "$CLI.tmp" <<EOF
+#!/bin/bash
+$MARK (written by read-aloud-setup; see engine/cli.ts)
+# It holds the text being read (and runs selection.py, which does too): a
+# crash must not write it to disk in a core dump.
+ulimit -c 0
+exec "$bun" "$DATA/engine/cli.ts" "\$@"
+EOF
+  chmod 755 "$CLI.tmp" && mv "$CLI.tmp" "$CLI"
+
+  step "Starting the service…"
+  mkdir -p "$UNIT_DIR"
+  sed -e "s|@BUN@|$bun|g" -e "s|@BUN_DIR@|$(dirname "$bun")|g" -e "s|@DATA@|$DATA|g" \
+    "$SRC/systemd/$UNIT" > "$UNIT_DIR/$UNIT"
+  systemctl --user daemon-reload
+  systemctl --user enable "$UNIT" >/dev/null 2>&1
+  systemctl --user restart "$UNIT"
+
+  echo "$VERSION" > "$DATA/version"
+  echo "Set up. Highlight text and press Super+Alt+R, or paste it here and press Play."
+}
+
+shortcut() {
+  case "${1:-}" in
+    on)
+      [[ -f $BINDINGS ]] || die "No $BINDINGS to add the shortcut to."
+      shortcut_present && { echo "Shortcut already there."; return; }
+      cp "$BINDINGS" "$BINDINGS.bak.$(date +%s)"
+      cat >> "$BINDINGS" <<EOF
+
+-- BEGIN omarchy-read-aloud
+-- Read the text highlighted in the window under the pointer; press again on
+-- the same text to stop. Added by Read Aloud; remove it from its panel.
+o.bind("SUPER + ALT + R", "Read selection aloud", "$CLI selection")
+-- END omarchy-read-aloud
+EOF
+      ;;
+    off)
+      shortcut_present || { echo "No shortcut to remove."; return; }
+      cp "$BINDINGS" "$BINDINGS.bak.$(date +%s)"
+      # The block and the blank line written before it.
+      sed -i -e '/^$/{N;/\n-- BEGIN omarchy-read-aloud/!{P;D}}' \
+        -e '/-- BEGIN omarchy-read-aloud/,/-- END omarchy-read-aloud/d' "$BINDINGS"
+      ;;
+    *) die "usage: read-aloud-setup shortcut on|off" ;;
+  esac
+  hyprctl reload >/dev/null 2>&1 || true
+  echo "Shortcut $1."
+}
+
+uninstall() {
+  step "Removing Read Aloud…"
+  systemctl --user disable --now "$UNIT" >/dev/null 2>&1 || true
+  rm -f "$UNIT_DIR/$UNIT"
+  systemctl --user daemon-reload || true
+  shortcut_present && shortcut off >/dev/null
+  [[ -f $CLI ]] && grep -q -e "$MARK" -e "omarchy-read-aloud/engine/cli.ts" "$CLI" && rm -f "$CLI"
+  rm -rf "$DATA"
+  if [[ -d $CONFIG/omarchy/plugins/$PLUGIN_ID ]]; then
+    omarchy plugin remove "$PLUGIN_ID" --yes >/dev/null \
+      || die "Couldn't remove the plugin: run omarchy plugin remove $PLUGIN_ID"
+  fi
+  notify-send -a "Read Aloud" "Read Aloud removed" "Bun is still installed (omarchy pkg drop bun removes it)." 2>/dev/null || true
+  echo "Removed."
+}
+
+case "${1:-}" in
+  check) check ;;
+  setup) setup ;;
+  shortcut) shortcut "${2:-}" ;;
+  uninstall) uninstall ;;
+  *) die "usage: read-aloud-setup check | setup | shortcut on|off | uninstall" ;;
+esac

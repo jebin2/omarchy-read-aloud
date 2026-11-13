@@ -1,0 +1,35 @@
+[Unit]
+Description=Read Aloud (private local text-to-speech)
+After=graphical-session.target pipewire.service
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=@BUN@ @DATA@/engine/speakd.ts
+Environment=PATH=@BUN_DIR@:/usr/local/bin:/usr/bin
+Environment=READ_ALOUD_MODELS=@DATA@/models
+# Setup downloads the model once; after that, never touch the network.
+Environment=READ_ALOUD_OFFLINE=1
+Restart=on-failure
+RestartSec=2
+KillMode=control-group
+UMask=0077
+# Privacy: never write a core dump, which would hold the text being read.
+LimitCORE=0
+NoNewPrivileges=yes
+# A private, RAM-only (tmpfs) /tmp and /var/tmp, gone when the service stops.
+PrivateTmp=disconnected
+# Enforced by the kernel, not just by the code:
+# - no network: only Unix sockets (the control socket, PipeWire, model IPC);
+RestrictAddressFamilies=AF_UNIX
+# - nothing written anywhere except the control socket's directory;
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%t/omarchy-read-aloud
+RuntimeDirectory=omarchy-read-aloud
+RuntimeDirectoryMode=0700
+# - the text and audio in memory never go to a swap file or partition.
+MemorySwapMax=0
+
+[Install]
+WantedBy=graphical-session.target
