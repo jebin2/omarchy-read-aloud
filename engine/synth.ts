@@ -21,12 +21,12 @@ import {
 import { availableParallelism } from "node:os";
 
 const MODEL = "onnx-community/Kokoro-82M-v1.0-ONNX";
-// model_timed_fp16.onnx = model_fp16.onnx plus the per-token durations as a
+// model_timed.onnx = model.onnx (fp32) plus the per-token durations as a
 // second output (see patch-model.ts).
 const MODEL_FILE = "model_timed";
 const DURATIONS = "/encoder/Gather_output_0";
 const SAMPLES_PER_FRAME = 600; // 24 kHz, 25 ms frames (verified: frames x 600 = samples)
-const DTYPE = process.env.READ_ALOUD_DTYPE ?? "fp16";
+const DTYPE = process.env.READ_ALOUD_DTYPE ?? "fp32";
 // Measured on a 13700HX: 6 is fastest; more threads cost memory, not speed.
 const THREADS = Number(
   process.env.READ_ALOUD_THREADS ??
@@ -104,6 +104,10 @@ process.on("message", async (msg: any) => {
   try {
     last = null;
     const audio = await tts.generate(text, { voice, speed });
+    // A broken model output (the fp16 export did this for whole chunks) would
+    // play as silence while the highlight moves on: report it instead, and
+    // the daemon skips the chunk.
+    for (const v of audio.audio) if (!Number.isFinite(v)) throw Object.assign(new Error(), { name: "invalid audio (NaN)" });
     send({ type: "result", id, samples: audio.audio, rate: audio.sampling_rate, words: wordSpans() });
   } catch (e) {
     send({ type: "error", id, message: (e as Error).name || "synthesis failed" });

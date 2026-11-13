@@ -1,8 +1,10 @@
-// Downloads the Kokoro model (fp16, ~165 MB) and its tokenizer files into
+// Downloads the Kokoro model (fp32, ~326 MB) and its tokenizer files into
 // READ_ALOUD_MODELS once. The daemon itself always runs offline.
-// Afterwards read-aloud-setup patches it (patch-model.ts) to model_timed_fp16.onnx.
-// fp16 over uint8: closer to the full-precision voice at the same speed and
-// memory on a 13700HX (4.3x vs 4.9x real time, ~660 MB peak for both).
+// Afterwards read-aloud-setup patches it (patch-model.ts) to model_timed.onnx.
+// fp32: the full-precision voice, ~4.3x real time on a 13700HX, ~950 MB peak
+// while synthesizing (freed right after). Not fp16: on the CPU it returned
+// all-NaN audio (silence) for about a third of the chunks of a test text.
+// uint8 was clean too but sounds slightly worse.
 //
 // Pinned: every file comes from one fixed commit of the Hugging Face repo and
 // must match its SHA-256, so a later change upstream is never installed
@@ -18,7 +20,7 @@ const FILES: Record<string, string> = {
   "config.json": "df34b4f930b23447cd4dc410fabfb42eb3f24e803e6c3f97d618fb359380a36f",
   "tokenizer.json": "77a02c8e164413299b4b4c403b14f8e0e1c1b727db4d46a09d6327b861060a34",
   "tokenizer_config.json": "be1cb066d6ef6b074b3f15e6a6dd21ac88ff3cdaedf325f0aaed686c70f75d20",
-  "onnx/model_fp16.onnx": "ba4527a874b42b21e35f468c10d326fdff3c7fc8cac1f85e9eb6c0dfc35c334a",
+  "onnx/model.onnx": "8fbea51ea711f2af382e88c833d9e288c6dc82ce5e98421ea61c058ce21a34cb",
 };
 
 const root = process.env.READ_ALOUD_MODELS;
@@ -31,7 +33,7 @@ for (const [file, sha256] of Object.entries(FILES)) {
   const url = `https://huggingface.co/${REPO}/resolve/${REVISION}/${file}`;
   const res = await fetch(url);
   if (!res.ok || !res.body) throw new Error(`download failed: ${file} (HTTP ${res.status})`);
-  // Stream to disk and hash on the way, so the 165 MB model never sits in memory.
+  // Stream to disk and hash on the way, so the 326 MB model never sits in memory.
   const hash = createHash("sha256");
   const out = Bun.file(tmp).writer();
   for await (const chunk of res.body) {

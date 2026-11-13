@@ -16,7 +16,7 @@ omarchy restart shell
 
 A speaker icon (󰔊) appears in the bar. Click it and press **Set up**. Setup
 installs the voice engine in your home folder and downloads the voice model
-(165 MB, once). If [Bun](https://bun.sh) isn't installed, it asks for your
+(326 MB, once). If [Bun](https://bun.sh) isn't installed, it asks for your
 password to install the Arch `bun` package. That's the only step that needs it.
 
 Then turn on **Super+Alt+R reads the highlighted text** in the panel if you
@@ -128,14 +128,15 @@ bar panel (Quickshell Socket) ───────┘  (~40 MB)  └─► synt
 | Synthesis speed | ~0.22× real time (16 s for 73 s) |
 | Model process | 308 MB loaded, ~590 MB peak, alive ~18 s for 73 s of audio |
 | Daemon | ~40 MB, the only thing running when idle |
-| Disk | 318 MB engine + 165 MB model |
+| Disk | 318 MB engine + 326 MB model |
 
-The figures above were measured with the uint8 model. Since 0.1.1 the model is
-fp16, which sounds closer to the full-precision voice. Side by side through
-`synth.ts` (77 s of audio), fp16 took 17.7 s against 15.0 s for uint8 (4.3x
-against 5.1x real time) with the same peak memory (851 vs 865 MB), so expect
-synthesis about 18% slower and the first chunk about 0.1–0.3 s later. fp32
-measured the same speed as fp16 but ~290 MB more memory; q8 was 3x slower.
+The figures above were measured with the uint8 model. Since 0.1.3 the model is
+fp32, the full-precision voice. Side by side through `synth.ts`, fp32 ran at
+4.3x real time against 5.1x for uint8 (synthesis ~18% slower, the first chunk
+~0.1–0.3 s later) and peaked ~290 MB higher (~950 MB, freed when it unloads).
+fp16 was as fast but returned all-NaN audio (silence) for whole chunks on the
+CPU, about a third of them on one test text, so it is not used; `synth.ts`
+now reports any NaN chunk and the daemon skips it. q8 was 3x slower.
 
 Where the first-word time goes (cold): CLI 25 ms, Bun + imports 70 ms, model
 session ~330 ms, tokenizer/phonemizer ~50 ms, then synthesis of the first chunk,
@@ -176,7 +177,7 @@ Memory choices, with measurements:
 | What | Where |
 | --- | --- |
 | Engine (Bun + `kokoro-js`) | `~/.local/share/omarchy-read-aloud/engine` |
-| Voice model (fp16, patched for word timing) | `~/.local/share/omarchy-read-aloud/models` |
+| Voice model (fp32, patched for word timing) | `~/.local/share/omarchy-read-aloud/models` |
 | `read-aloud` command | `~/.local/bin/read-aloud` |
 | Service | `~/.config/systemd/user/omarchy-read-aloud.service` (enabled) |
 | Shortcut (only if you turn it on) | marked block in `~/.config/hypr/bindings.lua`, previous version in `bindings.lua.bak.read-aloud` |

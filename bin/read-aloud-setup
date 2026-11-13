@@ -9,7 +9,7 @@
 #
 # What setup puts where (all in your home, nothing system-wide except Bun):
 #   engine  -> ~/.local/share/omarchy-read-aloud/engine   (+ node_modules)
-#   model   -> ~/.local/share/omarchy-read-aloud/models   (~165 MB, downloaded once)
+#   model   -> ~/.local/share/omarchy-read-aloud/models   (~326 MB, downloaded once)
 #   command -> ~/.local/bin/read-aloud
 #   service -> ~/.config/systemd/user/omarchy-read-aloud.service
 #   Bun     -> the Arch package "bun", only if no Bun is found (asks for your password)
@@ -26,7 +26,7 @@ UNIT="omarchy-read-aloud.service"
 CLI="$HOME/.local/bin/read-aloud"
 BINDINGS="$CONFIG/hypr/bindings.lua"
 MDIR="$DATA/models/onnx-community/Kokoro-82M-v1.0-ONNX/onnx"
-MODEL="$MDIR/model_timed_fp16.onnx"
+MODEL="$MDIR/model_timed.onnx"
 VERSION="$(sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' "$SRC/manifest.json" | head -n 1)"
 MARK="# omarchy-read-aloud command"
 
@@ -52,8 +52,9 @@ shortcut_present() { [[ -f $BINDINGS ]] && grep -q -- '-- BEGIN omarchy-read-alo
 check() {
   local installed=false update=false shortcut=false bun=false have=""
   [[ -f $DATA/version ]] && have="$(head -n 1 "$DATA/version")"
-  [[ -n $have && -f $MODEL && -f $UNIT_DIR/$UNIT && -x $CLI ]] && installed=true
-  [[ $installed == true && $have != "$VERSION" ]] && update=true
+  [[ -n $have && -f $UNIT_DIR/$UNIT && -x $CLI ]] && installed=true
+  # A new version, or a model change (e.g. fp16 -> fp32): offer Update.
+  [[ $installed == true && ( $have != "$VERSION" || ! -f $MODEL ) ]] && update=true
   shortcut_present && shortcut=true
   find_bun >/dev/null && bun=true
   printf '{"installed":%s,"update":%s,"shortcut":%s,"bun":%s,"version":"%s","installedVersion":"%s"}\n' \
@@ -86,22 +87,22 @@ setup() {
   rm -rf "$DATA/engine/node_modules/onnxruntime-web"
 
   if [[ ! -f $MODEL ]]; then
-    if [[ ! -f $MDIR/model_fp16.onnx ]]; then
-      if [[ -f $SRC/models/onnx-community/Kokoro-82M-v1.0-ONNX/onnx/model_fp16.onnx ]]; then
+    if [[ ! -f $MDIR/model.onnx ]]; then
+      if [[ -f $SRC/models/onnx-community/Kokoro-82M-v1.0-ONNX/onnx/model.onnx ]]; then
         step "Copying the voice model…"
         mkdir -p "$DATA/models" && cp -r "$SRC/models/." "$DATA/models/"
       else
-        step "Downloading the voice model (165 MB, once)…"
+        step "Downloading the voice model (326 MB, once)…"
         READ_ALOUD_MODELS="$DATA/models" "$bun" "$DATA/engine/fetch-model.ts" >/dev/null \
           || die "Couldn't download the voice model from Hugging Face (no internet?)."
       fi
     fi
     step "Preparing the voice model…"
-    "$bun" "$DATA/engine/patch-model.ts" "$MDIR/model_fp16.onnx" "$MODEL" >/dev/null
-    rm -f "$MDIR/model_fp16.onnx"
+    "$bun" "$DATA/engine/patch-model.ts" "$MDIR/model.onnx" "$MODEL" >/dev/null
+    rm -f "$MDIR/model.onnx"
   fi
-  # Before 0.1.1 the model was uint8.
-  rm -f "$MDIR/model_timed_uint8.onnx" "$MDIR/model_uint8.onnx"
+  # Earlier models: uint8 (0.1.0), fp16 (0.1.1-0.1.2, silent chunks).
+  rm -f "$MDIR"/model_timed_uint8.onnx "$MDIR"/model_uint8.onnx "$MDIR"/model_timed_fp16.onnx "$MDIR"/model_fp16.onnx
 
   step "Installing the read-aloud command…"
   mkdir -p "$(dirname "$CLI")"
