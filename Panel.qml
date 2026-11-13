@@ -372,9 +372,14 @@ Panel {
             anchors.margins: Style.space(2)
             clip: true
             ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+            // Vertical scrolling only. Without this the content is as wide as
+            // the TextArea's unwrapped text (or placeholder), so it scrolls
+            // sideways with no visible bar.
+            contentWidth: availableWidth
 
             TextArea {
               id: textBox
+              width: scroll.availableWidth
               textFormat: TextEdit.PlainText
               wrapMode: TextEdit.Wrap
               readOnly: root.active
