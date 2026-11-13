@@ -366,20 +366,23 @@ Panel {
             radius: Style.cornerRadius
           }
 
-          ScrollView {
+          // A plain Flickable locked to vertical, like Omarchy's own panels: a
+          // ScrollView's Flickable still took sideways touchpad scrolls (with
+          // overshoot) even with the content exactly as wide as the box.
+          Flickable {
             id: scroll
             anchors.fill: parent
             anchors.margins: Style.space(2)
             clip: true
-            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
-            // Vertical scrolling only. Without this the content is as wide as
-            // the TextArea's unwrapped text (or placeholder), so it scrolls
-            // sideways with no visible bar.
-            contentWidth: availableWidth
+            contentWidth: width
+            flickableDirection: Flickable.VerticalFlick
+            boundsBehavior: Flickable.StopAtBounds
+            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
-            TextArea {
+            // TextArea.flickable: the text box is sized to the Flickable and
+            // keeps the cursor in view while typing.
+            TextArea.flickable: TextArea {
               id: textBox
-              width: scroll.availableWidth
               textFormat: TextEdit.PlainText
               wrapMode: TextEdit.Wrap
               readOnly: root.active
@@ -403,9 +406,8 @@ Panel {
               function showHighlight() {
                 if (!(root.active && root.wordStart >= 0 && !root.draftDirty && text === root.spokenText)) return
                 var r = positionToRectangle(root.wordStart)
-                var flick = scroll.contentItem
-                if (flick && flick.contentY !== undefined
-                    && (r.y < flick.contentY || r.y + r.height > flick.contentY + flick.height))
+                var flick = scroll
+                if ((r.y < flick.contentY || r.y + r.height > flick.contentY + flick.height))
                   flick.contentY = Math.max(0, Math.min(r.y - Style.space(24), height - flick.height))
               }
 
