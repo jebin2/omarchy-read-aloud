@@ -88,6 +88,10 @@ replace mid-read, voice change, pause, resume, stop, clear) and searching the
 system and user journals and every file written meanwhile: no trace.
 
 Hibernation writes all of RAM to disk; keep the disk encrypted if you use it.
+The panel shows the text, so it is also in the Omarchy shell's memory while
+shown; Read Aloud can't turn off core dumps for the shell itself. Text you
+**copy** (not just highlight) may be kept by a clipboard history tool; Read
+Aloud never reads the clipboard except when you press **Paste**.
 In shell examples, piped text can land in your shell history: prefer
 `wl-paste | read-aloud speak` or a file to typing the text in the command.
 

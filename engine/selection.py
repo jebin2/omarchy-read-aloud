@@ -20,7 +20,6 @@
 import importlib.machinery
 import importlib.util
 import os
-import shutil
 import subprocess
 import sys
 
@@ -38,9 +37,11 @@ def primary():
 
 def load_pique():
     """pique-peek's helpers (window under the pointer, accessibility bus,
-    pique-watch), imported from the installed script; None without pique."""
-    path = shutil.which("pique-peek") or "/usr/bin/pique-peek"
-    if not os.path.isfile(path):
+    pique-watch), imported from the packaged script; None without pique.
+    Only /usr/bin (root-owned, from the pique package) is trusted: never a
+    pique-peek found elsewhere on PATH, since its code runs in this process."""
+    path = "/usr/bin/pique-peek"
+    if not os.path.isfile(path) or os.stat(path).st_uid != 0:
         return None
     try:
         loader = importlib.machinery.SourceFileLoader("pique_peek", path)

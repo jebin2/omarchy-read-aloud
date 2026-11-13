@@ -33,6 +33,12 @@ MARK="# omarchy-read-aloud command"
 step() { echo "step: $*"; }
 die() { echo "$*" >&2; exit 1; }
 
+# One setup, shortcut change or uninstall at a time (panel and terminal).
+lock() {
+  exec 9>"${XDG_RUNTIME_DIR:-/tmp}/omarchy-read-aloud-setup.lock"
+  flock -n 9 || die "Read Aloud setup is already running."
+}
+
 find_bun() {
   local b
   for b in "$(command -v bun 2>/dev/null || true)" "$HOME/.bun/bin/bun"; do
@@ -130,7 +136,9 @@ shortcut() {
     on|off) ;;
     *) die "usage: read-aloud-setup shortcut on|off" ;;
   esac
-  [[ -f $BINDINGS ]] || die "No $BINDINGS to change."
+  [[ -f $BINDINGS ]] || die "No $BINDINGS: add Super+Alt+R yourself, running $CLI selection."
+  # The path goes inside a Lua string.
+  [[ $CLI == *[\"\\]* ]] && die "Your home folder path has a quote or backslash; add the shortcut yourself."
   if [[ $1 == on ]] && shortcut_present; then echo "Shortcut already there."; return; fi
   if [[ $1 == off ]] && ! shortcut_present; then echo "No shortcut to remove."; return; fi
   # One backup, replaced each time, so toggling doesn't pile up files.
@@ -162,8 +170,11 @@ uninstall() {
   [[ -f $CLI ]] && grep -q -e "$MARK" -e "omarchy-read-aloud/engine/cli.ts" "$CLI" && rm -f "$CLI"
   rm -rf "$DATA"
   if [[ -d $CONFIG/omarchy/plugins/$PLUGIN_ID ]]; then
-    omarchy plugin remove "$PLUGIN_ID" --yes >/dev/null \
-      || die "Couldn't remove the plugin: run omarchy plugin remove $PLUGIN_ID"
+    if ! omarchy plugin remove "$PLUGIN_ID" --yes >/dev/null; then
+      # The panel runs this detached, so say it where it will be seen.
+      notify-send -a "Read Aloud" "Read Aloud: plugin not removed" "Run: omarchy plugin remove $PLUGIN_ID" 2>/dev/null || true
+      die "Couldn't remove the plugin: run omarchy plugin remove $PLUGIN_ID"
+    fi
   fi
   notify-send -a "Read Aloud" "Read Aloud removed" "Bun is still installed (omarchy pkg drop bun removes it)." 2>/dev/null || true
   echo "Removed."
@@ -171,8 +182,8 @@ uninstall() {
 
 case "${1:-}" in
   check) check ;;
-  setup) setup ;;
-  shortcut) shortcut "${2:-}" ;;
-  uninstall) uninstall ;;
+  setup) lock; setup ;;
+  shortcut) lock; shortcut "${2:-}" ;;
+  uninstall) lock; uninstall ;;
   *) die "usage: read-aloud-setup check | setup | shortcut on|off | uninstall" ;;
 esac

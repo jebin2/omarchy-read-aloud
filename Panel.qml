@@ -33,6 +33,7 @@ Panel {
   property string setupStep: ""      // the latest "step: …" line of a running setup
   property string setupMsg: ""       // the last line of a failed setup
   property bool shortcutBusy: false
+  property string shortcutMsg: ""    // why the last shortcut change failed
   property bool confirmUninstall: false
   property bool uninstalling: false
 
@@ -120,6 +121,7 @@ Panel {
   function setShortcut(on) {
     if (shortcutProc.running) return
     root.shortcutBusy = true
+    root.shortcutMsg = ""
     shortcutProc.command = ["bash", root.setupCmd, "shortcut", on ? "on" : "off"]
     shortcutProc.running = true
   }
@@ -175,7 +177,15 @@ Panel {
 
   Process {
     id: shortcutProc
-    onExited: { root.shortcutBusy = false; root.refresh() }
+    stderr: StdioCollector { id: shortcutErr; waitForEnd: true }
+    onExited: function(exitCode) {
+      root.shortcutBusy = false
+      if (exitCode !== 0) {
+        var lines = String(shortcutErr.text || "").trim().split("\n")
+        root.shortcutMsg = (lines[lines.length - 1] || strings.t("setup.failed").arg(exitCode)).slice(0, 300)
+      }
+      root.refresh()
+    }
   }
 
   function statusText() {
@@ -584,6 +594,17 @@ Panel {
             foreground: root.bar.foreground
             onToggled: root.setShortcut(!checked)
           }
+        }
+
+        Text {
+          visible: root.installed && root.shortcutMsg !== ""
+          width: parent.width
+          wrapMode: Text.WordWrap
+          textFormat: Text.PlainText
+          text: "✗ " + root.shortcutMsg
+          color: Commons.Color.accent
+          font.family: root.bar.fontFamily
+          font.pixelSize: Style.font.caption
         }
 
         // ---------- Uninstall ----------
