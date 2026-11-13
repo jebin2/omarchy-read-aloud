@@ -1,16 +1,45 @@
 # Read Aloud for Omarchy
 
-Private, offline text-to-speech in the Omarchy bar, using the Kokoro-82M voice
-model on the CPU.
+Private, offline text-to-speech in the [Omarchy](https://omarchy.org) bar.
+Highlight text anywhere and press `Super+Alt+R`, or paste it into the panel and
+press Play. The voice is [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M),
+running on your CPU: nothing is sent anywhere, and nothing is saved.
 
-- **Highlight text anywhere and press `Super+Alt+R`** to hear it. Press it again on the same text to stop; highlight something
-  else to switch.
+![Read Aloud panel](preview.png)
 
-### Which highlight is read (same rules as pique)
+## Install
 
-The text highlighted **in the window under the pointer**, decided the way
-[pique](https://github.com/jebin2/pique) does, reusing its installed helpers
-(`engine/selection.py` imports them from `pique-peek`):
+```bash
+omarchy plugin add https://github.com/jebin2/omarchy-read-aloud.git --enable
+omarchy restart shell
+```
+
+A speaker icon (󰔊) appears in the bar. Click it and press **Set up**. Setup
+installs the voice engine in your home folder and downloads the voice model
+(165 MB, once). If [Bun](https://bun.sh) isn't installed, it asks for your
+password to install the Arch `bun` package. That's the only step that needs it.
+
+Then turn on **Super+Alt+R reads the highlighted text** in the panel if you
+want the shortcut. It adds a marked block to `~/.config/hypr/bindings.lua`,
+and turning the switch off removes it.
+
+Setup can also run from a terminal:
+`~/.config/omarchy/plugins/jebin2.read-aloud/bin/read-aloud-setup setup`.
+
+## Use
+
+- **Highlight text and press `Super+Alt+R`.** Press it again on the same text
+  to stop; highlight something else and press it to switch.
+- **Or open the panel**, paste or type text, and press **Play**.
+- The panel shows the text with **the word being spoken** highlighted, and has
+  Play/Pause, Stop, Clear, Paste, voice and speed. `af_heart` and `af_bella`
+  are the best-rated voices.
+
+### Which highlight is read
+
+The text highlighted in the window under the pointer. If
+[pique](https://github.com/jebin2/pique) is installed, Read Aloud uses its
+helpers (`engine/selection.py` imports them from `pique-peek`):
 
 - **GTK and Qt apps** are asked over the accessibility bus for their
   selection right now.
@@ -22,12 +51,17 @@ The text highlighted **in the window under the pointer**, decided the way
   highlight is also the latest one on the system (the usual case), the full
   text comes from the primary selection; only an older highlight in a
   window you are pointing back at is cut at 2,000 characters.
-- **Without pique** installed, or its watcher not running, it falls back to
-  the primary selection (the last highlight anywhere).
-- **Or open Read Aloud in the bar**, paste or type text, and press Play.
-- The panel shows the text being read with **the word being spoken**
-  highlighted (it scrolls to keep it in view), and has Play/Pause, Stop,
-  Clear, Paste, voice and speed.
+
+**Without pique** (the default), it reads the primary selection: the last
+text highlighted anywhere.
+
+## Uninstall
+
+Panel → **Uninstall…** → **Remove**. It stops and removes the service, the
+engine and model (`~/.local/share/omarchy-read-aloud`), the `read-aloud`
+command, the shortcut, and the plugin. Bun stays installed
+(`omarchy pkg drop bun` removes it). From a terminal:
+`~/.config/omarchy/plugins/jebin2.read-aloud/bin/read-aloud-setup uninstall`.
 
 ## Privacy: incognito only
 
@@ -38,7 +72,7 @@ The text highlighted **in the window under the pointer**, decided the way
 | Socket | `$XDG_RUNTIME_DIR/omarchy-read-aloud/control.sock` (tmpfs), directory `0700`, socket `0600`. |
 | Logs | State changes only (`phase=playing`, `engine.start`); no text and nothing derived from it. |
 | Crashes | No core dumps (which would contain the text): `LimitCORE=0` for the service, `ulimit -c 0` for the `read-aloud` command. |
-| Network | None at runtime (`READ_ALOUD_OFFLINE=1`). The installer downloads the model once. |
+| Network | None at runtime (`READ_ALOUD_OFFLINE=1`). Setup downloads the model once. |
 
 The service is also sandboxed by systemd, so these hold even if the code (or a
 library) tried otherwise:
@@ -79,7 +113,7 @@ bar panel (Quickshell Socket) ───────┘  (~40 MB)  └─► synt
   synthesizes the whole text back to back (up to 10 minutes ahead) and is then
   **killed at once**, so its memory is returned while the buffered audio is
   still playing.
-- **`plugin/Panel.qml`**, the bar widget. It keeps one live connection to the
+- **`Panel.qml`**, the bar widget. It keeps one live connection to the
   socket; the daemon pushes the text and playback state to it.
 
 ### Measured (i7-13700HX, 73 s of audio)
@@ -133,20 +167,22 @@ Memory choices, with measurements:
   about a second after it goes idle, the Bun runtime grows by ~150 MB, and no
   GC setting avoided it. The cost is a cold start on every read.
 
-## Install
+## What setup installs
 
-Needs [Bun](https://bun.sh), PipeWire (`pw-play`) and `wl-clipboard`.
-[pique](https://github.com/jebin2/pique) is optional, for its per-window
-highlight rules.
+| What | Where |
+| --- | --- |
+| Engine (Bun + `kokoro-js`) | `~/.local/share/omarchy-read-aloud/engine` |
+| Voice model (fp16, patched for word timing) | `~/.local/share/omarchy-read-aloud/models` |
+| `read-aloud` command | `~/.local/bin/read-aloud` |
+| Service | `~/.config/systemd/user/omarchy-read-aloud.service` (enabled) |
+| Shortcut (only if you turn it on) | marked block in `~/.config/hypr/bindings.lua`, previous version in `bindings.lua.bak.read-aloud` |
+| Bun (only if missing) | Arch package `bun`, with your password |
 
-```bash
-./install.sh
-```
+Setup is the only time anything goes online: the engine's npm packages and
+the model from Hugging Face. When a plugin update changes the engine, the
+panel shows an **Update** card.
 
-It installs the engine to `~/.local/share/omarchy-read-aloud`, the plugin to
-`~/.config/omarchy/plugins/jebin2.read-aloud`, `read-aloud` to `~/.local/bin`,
-enables `omarchy-read-aloud.service`, adds the `Super+Alt+R` block to
-`~/.config/hypr/bindings.lua` (backed up first), and puts the widget in the bar.
+Needs PipeWire (`pw-play`), `wl-clipboard` and Python 3, all part of Omarchy.
 
 ## Command line
 
@@ -169,7 +205,7 @@ sent to the player, so it is heard from the next sentence.
 ## Tests
 
 ```
-cd engine && bun test
+cd engine && bun install && bun test
 ```
 
 Unit tests for splitting, word alignment, the model patch and the model
