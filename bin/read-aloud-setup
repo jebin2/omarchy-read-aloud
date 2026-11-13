@@ -127,28 +127,28 @@ EOF
 
 shortcut() {
   case "${1:-}" in
-    on)
-      [[ -f $BINDINGS ]] || die "No $BINDINGS to add the shortcut to."
-      shortcut_present && { echo "Shortcut already there."; return; }
-      cp "$BINDINGS" "$BINDINGS.bak.$(date +%s)"
-      cat >> "$BINDINGS" <<EOF
-
--- BEGIN omarchy-read-aloud
--- Read the text highlighted in the window under the pointer; press again on
--- the same text to stop. Added by Read Aloud; remove it from its panel.
-o.bind("SUPER + ALT + R", "Read selection aloud", "$CLI selection")
--- END omarchy-read-aloud
-EOF
-      ;;
-    off)
-      shortcut_present || { echo "No shortcut to remove."; return; }
-      cp "$BINDINGS" "$BINDINGS.bak.$(date +%s)"
-      # The block and the blank line written before it.
-      sed -i -e '/^$/{N;/\n-- BEGIN omarchy-read-aloud/!{P;D}}' \
-        -e '/-- BEGIN omarchy-read-aloud/,/-- END omarchy-read-aloud/d' "$BINDINGS"
-      ;;
+    on|off) ;;
     *) die "usage: read-aloud-setup shortcut on|off" ;;
   esac
+  [[ -f $BINDINGS ]] || die "No $BINDINGS to change."
+  if [[ $1 == on ]] && shortcut_present; then echo "Shortcut already there."; return; fi
+  if [[ $1 == off ]] && ! shortcut_present; then echo "No shortcut to remove."; return; fi
+  # One backup, replaced each time, so toggling doesn't pile up files.
+  cp "$BINDINGS" "$BINDINGS.bak.read-aloud"
+  local tmp="$BINDINGS.tmp.read-aloud"
+  # Drop the block, then any blank lines it leaves at the end of the file.
+  sed '/-- BEGIN omarchy-read-aloud/,/-- END omarchy-read-aloud/d' "$BINDINGS" \
+    | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' > "$tmp"
+  if [[ $1 == on ]]; then
+    printf '\n%s\n%s\n%s\n%s\n%s\n' \
+      '-- BEGIN omarchy-read-aloud' \
+      '-- Read the text highlighted in the window under the pointer; press again on' \
+      '-- the same text to stop. Added by Read Aloud; remove it from its panel.' \
+      "o.bind(\"SUPER + ALT + R\", \"Read selection aloud\", \"$CLI selection\")" \
+      '-- END omarchy-read-aloud' >> "$tmp"
+  fi
+  # Write in place (keeps the file's inode, permissions and any symlink).
+  cat "$tmp" > "$BINDINGS" && rm -f "$tmp"
   hyprctl reload >/dev/null 2>&1 || true
   echo "Shortcut $1."
 }
