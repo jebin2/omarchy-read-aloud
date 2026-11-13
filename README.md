@@ -178,8 +178,10 @@ Memory choices, with measurements:
 | Shortcut (only if you turn it on) | marked block in `~/.config/hypr/bindings.lua`, previous version in `bindings.lua.bak.read-aloud` |
 | Bun (only if missing) | Arch package `bun`, with your password |
 
-Setup is the only time anything goes online: the engine's npm packages and
-the model from Hugging Face. When a plugin update changes the engine, the
+Setup is the only time anything goes online: the engine's npm packages
+(exact versions from `engine/bun.lock`, `--frozen-lockfile`) and the model from
+Hugging Face (one pinned commit, each file checked against its SHA-256 in
+`engine/fetch-model.ts`). When a plugin update changes the engine, the
 panel shows an **Update** card.
 
 Needs PipeWire (`pw-play`), `wl-clipboard` and Python 3, all part of Omarchy.
